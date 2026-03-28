@@ -51,7 +51,7 @@ local dragStart = nil
 local startPos = nil
 local slidingActive = false
 local listeningIndex = nil
-local keybindButtons = {}
+local autoEnabled = true
 
 local function getREPath()
     local success, result = pcall(function()
@@ -127,7 +127,7 @@ mainStroke.Color = Color3.fromRGB(80, 80, 120)
 mainStroke.Thickness = 1.5
 mainStroke.Parent = mainFrame
 
--- Title
+-- Title bar
 
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 36)
@@ -147,13 +147,44 @@ titleFix.BorderSizePixel = 0
 titleFix.Parent = titleBar
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, 0, 1, 0)
+titleLabel.Size = UDim2.new(1, -110, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "Kill Sound"
 titleLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
 titleLabel.TextSize = 14
 titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
+
+-- Toggle button
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 90, 0, 22)
+toggleBtn.Position = UDim2.new(1, -98, 0.5, -11)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Text = "Auto: ON"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextSize = 12
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.ZIndex = 2
+toggleBtn.Parent = titleBar
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggleBtn
+
+toggleBtn.MouseButton1Click:Connect(function()
+    autoEnabled = not autoEnabled
+    if autoEnabled then
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+        toggleBtn.Text = "Auto: ON"
+    else
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(160, 50, 50)
+        toggleBtn.Text = "Auto: OFF"
+    end
+end)
 
 -- Scroll area
 
@@ -459,6 +490,8 @@ RunService.Heartbeat:Connect(function()
     local currentKills = getKills()
     if currentKills > lastKills then
         lastKills = currentKills
-        fireSound(selectedIndex, false)
+        if autoEnabled then
+            fireSound(selectedIndex, false)
+        end
     end
 end)
