@@ -1,0 +1,464 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local sounds = {
+    {name = "Mahito itadori", args = {105199432380841}, key = nil},
+    {name = "Waste of Time", args = {5775509840}, key = nil},
+    {name = "Ganbare Ganbare", args = {128755610900618}, key = nil},
+    {name = "Heavenly Ramble", args = {82476745705122}, key = nil},
+    {name = "Satoru Gojo!!!", args = {6265242673}, key = nil},
+    {name = "Huh?", args = {16363777391}, key = nil},
+    {name = "Don", args = {12917642257}, key = nil},
+    {name = "Sorry Nanami", args = {18680487885}, key = nil},
+    {name = "Mambo", args = {97871211303571}, key = nil},
+    {name = "What Are You Mahito", args = {71411567772779}, key = nil},
+    {name = "Idk This Guy", args = {78044670447386}, key = nil},
+    {name = "Yowai Mo", args = {7948969023}, key = nil},
+    {name = "You Did It", args = {99137255050147}, key = nil},
+    {name = "BEST FRIEND (Todo)", args = {129622474979733}, key = nil},
+    {name = "Best Friend (Itadori)", args = {18257697094}, key = nil},
+    {name = "Convergence", args = {15917626934}, key = nil},
+    {name = "Where Are You Going", args = {96326653225562}, key = nil},
+    {name = "Next", args = {7061369096}, key = nil},
+    {name = "Toji Fushiguro", args = {6743603446}, key = nil},
+    {name = "Apologize", args = {15753185070}, key = nil},
+    {name = "Disrespectful Rush", args = {136335654594541}, key = nil},
+    {name = "Nanami Sigh", args = {10173613362}, key = nil},
+    {name = "You Cryin?", args = {112599702984899}, key = nil},
+    {name = "Laugh", args = {18319797565}, key = nil},
+    {name = "Sata Andagi", args = {18976119144}, key = nil},
+    {name = "For Real (Toji)", args = {7061190867}, key = nil},
+    {name = "Stand Proud", args = {100445971002729}, key = nil},
+    {name = "Angry", args = {13997948756}, key = nil},
+    {name = "Vibraslap", args = {18246120711}, key = nil},
+    {name = "For Real (Mahito)", args = {16159090773}, key = nil},
+    {name = "Somethings Off", args = {131371183130808}, key = nil},
+    {name = "Yujiiiiii", args = {89667437228243}, key = nil},
+    {name = "Yo Its Been A While", args = {7061193663}, key = nil},
+    {name = "Oi", args = {18370175258}, key = nil},
+    {name = "Idiot", args = {137318879402973}, key = nil},
+}
+
+local selectedIndex = 1
+local lastKills = 0
+local talkRE = nil
+local cooldown = false
+local triggerDelay = 0
+local dragging = false
+local dragStart = nil
+local startPos = nil
+local slidingActive = false
+local listeningIndex = nil
+local keybindButtons = {}
+
+local function getREPath()
+    local success, result = pcall(function()
+        return game:GetService("ReplicatedStorage")
+            :WaitForChild("Knit", 10)
+            :WaitForChild("Knit", 10)
+            :WaitForChild("Services", 10)
+            :WaitForChild("JoinService", 10)
+            :WaitForChild("RE", 10)
+            :WaitForChild("Talk", 10)
+    end)
+    if success then return result end
+    return nil
+end
+
+local function fireSoundIndex(index)
+    if not talkRE then talkRE = getREPath() end
+    if talkRE then
+        talkRE:FireServer(unpack(sounds[index].args))
+    end
+end
+
+local function fireSound(index, bypass)
+    if not talkRE then talkRE = getREPath() end
+    if talkRE and not cooldown then
+        cooldown = true
+        if bypass then
+            fireSoundIndex(index)
+            task.delay(1, function() cooldown = false end)
+        else
+            task.delay(triggerDelay, function()
+                fireSoundIndex(index)
+                task.delay(1, function() cooldown = false end)
+            end)
+        end
+    end
+end
+
+local function getKills()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if not leaderstats then return 0 end
+    local kills = leaderstats:FindFirstChild("Kills") or leaderstats:FindFirstChild("KOs") or leaderstats:FindFirstChild("kills")
+    if kills then return kills.Value end
+    return 0
+end
+
+local function keyName(keyCode)
+    return tostring(keyCode):gsub("Enum.KeyCode.", "")
+end
+
+-- GUI
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "KillSoundGui"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = game:GetService("CoreGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 300, 0, 500)
+mainFrame.Position = UDim2.new(0, 100, 0, 100)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(80, 80, 120)
+mainStroke.Thickness = 1.5
+mainStroke.Parent = mainFrame
+
+-- Title
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 36)
+titleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleBar
+
+local titleFix = Instance.new("Frame")
+titleFix.Size = UDim2.new(1, 0, 0.5, 0)
+titleFix.Position = UDim2.new(0, 0, 0.5, 0)
+titleFix.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+titleFix.BorderSizePixel = 0
+titleFix.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 1, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "Kill Sound"
+titleLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+titleLabel.TextSize = 14
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = titleBar
+
+-- Scroll area
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, 0, 1, -36 - 66)
+scrollFrame.Position = UDim2.new(0, 0, 0, 36)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 4
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 60, 160)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #sounds * 46 + 8)
+scrollFrame.Parent = mainFrame
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 4)
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.Parent = scrollFrame
+
+local listPadding = Instance.new("UIPadding")
+listPadding.PaddingTop = UDim.new(0, 4)
+listPadding.PaddingBottom = UDim.new(0, 4)
+listPadding.Parent = scrollFrame
+
+-- Delay Slider
+
+local sliderSection = Instance.new("Frame")
+sliderSection.Size = UDim2.new(1, 0, 0, 66)
+sliderSection.Position = UDim2.new(0, 0, 1, -66)
+sliderSection.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+sliderSection.BorderSizePixel = 0
+sliderSection.Parent = mainFrame
+
+local sliderSectionCorner = Instance.new("UICorner")
+sliderSectionCorner.CornerRadius = UDim.new(0, 10)
+sliderSectionCorner.Parent = sliderSection
+
+local sliderSectionFix = Instance.new("Frame")
+sliderSectionFix.Size = UDim2.new(1, 0, 0.5, 0)
+sliderSectionFix.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+sliderSectionFix.BorderSizePixel = 0
+sliderSectionFix.Parent = sliderSection
+
+local sliderDivider = Instance.new("Frame")
+sliderDivider.Size = UDim2.new(1, 0, 0, 1)
+sliderDivider.BackgroundColor3 = Color3.fromRGB(80, 80, 120)
+sliderDivider.BorderSizePixel = 0
+sliderDivider.Parent = sliderSection
+
+local delayLabel = Instance.new("TextLabel")
+delayLabel.Size = UDim2.new(1, -16, 0, 20)
+delayLabel.Position = UDim2.new(0, 8, 0, 8)
+delayLabel.BackgroundTransparency = 1
+delayLabel.Text = "Delay: 0.0s"
+delayLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+delayLabel.TextSize = 12
+delayLabel.Font = Enum.Font.GothamBold
+delayLabel.TextXAlignment = Enum.TextXAlignment.Left
+delayLabel.Parent = sliderSection
+
+local sliderTrack = Instance.new("Frame")
+sliderTrack.Size = UDim2.new(1, -24, 0, 6)
+sliderTrack.Position = UDim2.new(0, 12, 0, 36)
+sliderTrack.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+sliderTrack.BorderSizePixel = 0
+sliderTrack.Parent = sliderSection
+
+local sliderTrackCorner = Instance.new("UICorner")
+sliderTrackCorner.CornerRadius = UDim.new(1, 0)
+sliderTrackCorner.Parent = sliderTrack
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(0, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderTrack
+
+local sliderFillCorner = Instance.new("UICorner")
+sliderFillCorner.CornerRadius = UDim.new(1, 0)
+sliderFillCorner.Parent = sliderFill
+
+local sliderKnob = Instance.new("Frame")
+sliderKnob.Size = UDim2.new(0, 14, 0, 14)
+sliderKnob.Position = UDim2.new(0, -7, 0.5, -7)
+sliderKnob.BackgroundColor3 = Color3.fromRGB(160, 130, 255)
+sliderKnob.BorderSizePixel = 0
+sliderKnob.ZIndex = 2
+sliderKnob.Parent = sliderTrack
+
+local sliderKnobCorner = Instance.new("UICorner")
+sliderKnobCorner.CornerRadius = UDim.new(1, 0)
+sliderKnobCorner.Parent = sliderKnob
+
+local minLabel = Instance.new("TextLabel")
+minLabel.Size = UDim2.new(0, 20, 0, 14)
+minLabel.Position = UDim2.new(0, 8, 0, 48)
+minLabel.BackgroundTransparency = 1
+minLabel.Text = "0s"
+minLabel.TextColor3 = Color3.fromRGB(120, 120, 150)
+minLabel.TextSize = 10
+minLabel.Font = Enum.Font.Gotham
+minLabel.TextXAlignment = Enum.TextXAlignment.Left
+minLabel.Parent = sliderSection
+
+local maxLabel = Instance.new("TextLabel")
+maxLabel.Size = UDim2.new(0, 30, 0, 14)
+maxLabel.Position = UDim2.new(1, -38, 0, 48)
+maxLabel.BackgroundTransparency = 1
+maxLabel.Text = "10s"
+maxLabel.TextColor3 = Color3.fromRGB(120, 120, 150)
+maxLabel.TextSize = 10
+maxLabel.Font = Enum.Font.Gotham
+maxLabel.TextXAlignment = Enum.TextXAlignment.Right
+maxLabel.Parent = sliderSection
+
+local maxDelay = 10
+
+local function updateSlider(input)
+    local trackPos = sliderTrack.AbsolutePosition.X
+    local trackSize = sliderTrack.AbsoluteSize.X
+    local relX = math.clamp(input.Position.X - trackPos, 0, trackSize)
+    local fraction = relX / trackSize
+    triggerDelay = math.floor(fraction * maxDelay * 10 + 0.5) / 10
+    sliderFill.Size = UDim2.new(fraction, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(fraction, -7, 0.5, -7)
+    delayLabel.Text = string.format("Delay: %.1fs", triggerDelay)
+end
+
+sliderTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        slidingActive = true
+        updateSlider(input)
+    end
+end)
+
+-- Sound rows
+
+local soundButtons = {}
+
+local function updateSelection()
+    for i, row in ipairs(soundButtons) do
+        if i == selectedIndex then
+            row.nameBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
+            row.nameBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            row.nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+            row.nameBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        end
+    end
+end
+
+local function setListening(index)
+    listeningIndex = index
+    for i, row in ipairs(soundButtons) do
+        if i == index then
+            row.keyBtn.Text = "..."
+            row.keyBtn.TextColor3 = Color3.fromRGB(255, 220, 80)
+            row.keyStroke.Color = Color3.fromRGB(255, 220, 80)
+        else
+            row.keyBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+            row.keyStroke.Color = Color3.fromRGB(80, 80, 120)
+        end
+    end
+end
+
+for i, sound in ipairs(sounds) do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -12, 0, 38)
+    row.BackgroundTransparency = 1
+    row.Parent = scrollFrame
+
+    local nameBtn = Instance.new("TextButton")
+    nameBtn.Size = UDim2.new(1, -74, 1, 0)
+    nameBtn.Position = UDim2.new(0, 0, 0, 0)
+    nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    nameBtn.BorderSizePixel = 0
+    nameBtn.Text = sound.name
+    nameBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+    nameBtn.TextSize = 12
+    nameBtn.Font = Enum.Font.Gotham
+    nameBtn.TextXAlignment = Enum.TextXAlignment.Left
+    nameBtn.TextTruncate = Enum.TextTruncate.AtEnd
+    nameBtn.Parent = row
+
+    local nameBtnPad = Instance.new("UIPadding")
+    nameBtnPad.PaddingLeft = UDim.new(0, 8)
+    nameBtnPad.Parent = nameBtn
+
+    local nameBtnCorner = Instance.new("UICorner")
+    nameBtnCorner.CornerRadius = UDim.new(0, 6)
+    nameBtnCorner.Parent = nameBtn
+
+    local keyBtn = Instance.new("TextButton")
+    keyBtn.Size = UDim2.new(0, 68, 1, 0)
+    keyBtn.Position = UDim2.new(1, -68, 0, 0)
+    keyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    keyBtn.BorderSizePixel = 0
+    keyBtn.Text = "None"
+    keyBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+    keyBtn.TextSize = 11
+    keyBtn.Font = Enum.Font.Gotham
+    keyBtn.Parent = row
+
+    local keyBtnCorner = Instance.new("UICorner")
+    keyBtnCorner.CornerRadius = UDim.new(0, 6)
+    keyBtnCorner.Parent = keyBtn
+
+    local keyStroke = Instance.new("UIStroke")
+    keyStroke.Color = Color3.fromRGB(80, 80, 120)
+    keyStroke.Thickness = 1
+    keyStroke.Parent = keyBtn
+
+    nameBtn.MouseButton1Click:Connect(function()
+        selectedIndex = i
+        updateSelection()
+    end)
+
+    nameBtn.MouseEnter:Connect(function()
+        if i ~= selectedIndex then
+            nameBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75)
+        end
+    end)
+
+    nameBtn.MouseLeave:Connect(function()
+        if i ~= selectedIndex then
+            nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        end
+    end)
+
+    keyBtn.MouseButton1Click:Connect(function()
+        setListening(i)
+    end)
+
+    soundButtons[i] = {nameBtn = nameBtn, keyBtn = keyBtn, keyStroke = keyStroke}
+end
+
+updateSelection()
+
+-- Input handling
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if listeningIndex then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            local idx = listeningIndex
+            sounds[idx].key = input.KeyCode
+            local row = soundButtons[idx]
+            row.keyBtn.Text = keyName(input.KeyCode)
+            row.keyBtn.TextColor3 = Color3.fromRGB(160, 130, 255)
+            row.keyStroke.Color = Color3.fromRGB(80, 80, 120)
+            listeningIndex = nil
+        end
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.Keyboard and not gameProcessed then
+        for i, sound in ipairs(sounds) do
+            if sound.key and input.KeyCode == sound.key then
+                fireSound(i, true)
+                break
+            end
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        if dragging then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+        if slidingActive then
+            updateSlider(input)
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+        slidingActive = false
+    end
+end)
+
+-- Kill detection
+
+task.delay(3, function()
+    lastKills = getKills()
+end)
+
+RunService.Heartbeat:Connect(function()
+    local currentKills = getKills()
+    if currentKills > lastKills then
+        lastKills = currentKills
+        fireSound(selectedIndex, false)
+    end
+end)
