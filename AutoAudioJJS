@@ -39,109 +39,121 @@ local sounds = {
     {name = "Yo Its Been A While", args = {7061193663}, key = nil},
     {name = "Oi", args = {18370175258}, key = nil},
     {name = "Idiot", args = {137318879402973}, key = nil},
+    {name = "Hidoi na", args = {106755448566954}, key = nil},
+    {name = "Words are unnecessary", args = {134719689134074}, key = nil},
+    {name = "JACKPOT", args = {108907296117028}, key = nil},
 }
 
--- emoteSlots holds the live slot data including per-slot keybind
 local emoteSlots = {}
+local soundKeyMap = {}
+local emoteKeyMap = {}
 
 local selectedIndex = 1
 local lastKills = nil
 local talkRE = nil
-local cooldown = false
+local emoteRE = nil
+local soundCooldown = false
+local emoteCooldown = false
 local triggerDelay = 0
+local emoteDelay = 0
 local dragging = false
 local dragStart = nil
 local startPos = nil
 local slidingActive = false
 local listeningIndex = nil
-local autoEnabled = true
-local activeTab = 1
-
-local emoteSelectedSlot = 1
-local emoteAutoEnabled = true
-local emoteDelay = 0
 local emoteListeningSlot = nil
-local emoteCooldown = false
+local autoEnabled = false
+local emoteAutoEnabled = false
+local activeTab = 1
+local emoteSelectedSlot = 1
+local guiVisible = true
+
+local lastHeartbeatCheck = 0
+local HEARTBEAT_INTERVAL = 0.1
+
+-- toggle button drag state
+local tbDragging = false
+local tbDragStart = nil
+local tbStartPos = nil
+local tbDragMoved = false
 
 local function getREPath()
-    local success, result = pcall(function()
+    local ok, result = pcall(function()
         return game:GetService("ReplicatedStorage")
-            :WaitForChild("Knit", 10)
-            :WaitForChild("Knit", 10)
-            :WaitForChild("Services", 10)
-            :WaitForChild("JoinService", 10)
-            :WaitForChild("RE", 10)
-            :WaitForChild("Talk", 10)
+            :WaitForChild("Knit", 10):WaitForChild("Knit", 10)
+            :WaitForChild("Services", 10):WaitForChild("JoinService", 10)
+            :WaitForChild("RE", 10):WaitForChild("Talk", 10)
     end)
-    if success then return result end
-    return nil
+    return ok and result or nil
 end
 
 local function getEmoteREPath()
-    local success, result = pcall(function()
+    local ok, result = pcall(function()
         return game:GetService("ReplicatedStorage")
-            :WaitForChild("Knit", 10)
-            :WaitForChild("Knit", 10)
-            :WaitForChild("Services", 10)
-            :WaitForChild("EmoteService", 10)
-            :WaitForChild("RE", 10)
-            :WaitForChild("Emote", 10)
+            :WaitForChild("Knit", 10):WaitForChild("Knit", 10)
+            :WaitForChild("Services", 10):WaitForChild("EmoteService", 10)
+            :WaitForChild("RE", 10):WaitForChild("Emote", 10)
     end)
-    if success then return result end
-    return nil
+    return ok and result or nil
 end
 
-local emoteRE = nil
+local function fireSound(index, bypass)
+    if soundCooldown then return end
+    if not talkRE then talkRE = getREPath() end
+    if not talkRE then return end
+    soundCooldown = true
+    local delay = bypass and 0 or triggerDelay
+    if delay > 0 then
+        task.delay(delay, function()
+            talkRE:FireServer(unpack(sounds[index].args))
+            soundCooldown = false
+        end)
+    else
+        talkRE:FireServer(unpack(sounds[index].args))
+        task.delay(0.5, function() soundCooldown = false end)
+    end
+end
 
-local function fireEmoteSlot(slotIndex, bypass)
+local function fireEmote(slotIndex, bypass)
+    if emoteCooldown then return end
     if not emoteRE then emoteRE = getEmoteREPath() end
-    if emoteRE and not emoteCooldown then
-        emoteCooldown = true
-        if bypass then
+    if not emoteRE then return end
+    emoteCooldown = true
+    local delay = bypass and 0 or emoteDelay
+    if delay > 0 then
+        task.delay(delay, function()
             emoteRE:FireServer(slotIndex)
-            task.delay(1, function() emoteCooldown = false end)
-        else
-            task.delay(emoteDelay, function()
-                emoteRE:FireServer(slotIndex)
-                task.delay(1, function() emoteCooldown = false end)
-            end)
-        end
+            emoteCooldown = false
+        end)
+    else
+        emoteRE:FireServer(slotIndex)
+        task.delay(0.5, function() emoteCooldown = false end)
     end
 end
 
 local function getKills()
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-    if not leaderstats then return 0 end
-    local kills = leaderstats:FindFirstChild("Kills") or leaderstats:FindFirstChild("KOs") or leaderstats:FindFirstChild("kills")
-    if kills then return kills.Value end
-    return 0
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if not ls then return 0 end
+    local k = ls:FindFirstChild("Kills") or ls:FindFirstChild("KOs") or ls:FindFirstChild("kills")
+    return k and k.Value or 0
 end
 
-local function fireSoundIndex(index)
-    if not talkRE then talkRE = getREPath() end
-    if talkRE then
-        talkRE:FireServer(unpack(sounds[index].args))
+local function keyName(kc)
+    return tostring(kc):gsub("Enum.KeyCode.", "")
+end
+
+local function rebuildSoundKeyMap()
+    soundKeyMap = {}
+    for i, s in ipairs(sounds) do
+        if s.key then soundKeyMap[s.key] = i end
     end
 end
 
-local function fireSound(index, bypass)
-    if not talkRE then talkRE = getREPath() end
-    if talkRE and not cooldown then
-        cooldown = true
-        if bypass then
-            fireSoundIndex(index)
-            task.delay(1, function() cooldown = false end)
-        else
-            task.delay(triggerDelay, function()
-                fireSoundIndex(index)
-                task.delay(1, function() cooldown = false end)
-            end)
-        end
+local function rebuildEmoteKeyMap()
+    emoteKeyMap = {}
+    for _, s in ipairs(emoteSlots) do
+        if s.key then emoteKeyMap[s.key] = s.index end
     end
-end
-
-local function keyName(keyCode)
-    return tostring(keyCode):gsub("Enum.KeyCode.", "")
 end
 
 -- GUI
@@ -152,8 +164,32 @@ screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = game:GetService("CoreGui")
 
+-- Floating toggle button
+
+local toggleFloatBtn = Instance.new("TextButton")
+toggleFloatBtn.Size = UDim2.new(0, 42, 0, 42)
+toggleFloatBtn.Position = UDim2.new(0, 20, 0.5, 0)
+toggleFloatBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+toggleFloatBtn.BorderSizePixel = 0
+toggleFloatBtn.Text = "🗣️"
+toggleFloatBtn.TextSize = 22
+toggleFloatBtn.Font = Enum.Font.GothamBold
+toggleFloatBtn.ZIndex = 10
+toggleFloatBtn.Parent = screenGui
+
+local tfCorner = Instance.new("UICorner")
+tfCorner.CornerRadius = UDim.new(0, 10)
+tfCorner.Parent = toggleFloatBtn
+
+local tfStroke = Instance.new("UIStroke")
+tfStroke.Color = Color3.fromRGB(80, 80, 120)
+tfStroke.Thickness = 1.5
+tfStroke.Parent = toggleFloatBtn
+
+-- Main frame
+
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 300, 0, 500)
+mainFrame.Size = UDim2.new(0, 320, 0, 500)
 mainFrame.Position = UDim2.new(0, 100, 0, 100)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 mainFrame.BorderSizePixel = 0
@@ -168,6 +204,43 @@ local mainStroke = Instance.new("UIStroke")
 mainStroke.Color = Color3.fromRGB(80, 80, 120)
 mainStroke.Thickness = 1.5
 mainStroke.Parent = mainFrame
+
+-- Float button drag & click logic
+
+toggleFloatBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        tbDragging = true
+        tbDragMoved = false
+        tbDragStart = input.Position
+        tbStartPos = toggleFloatBtn.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if tbDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - tbDragStart
+        if math.abs(delta.X) > 4 or math.abs(delta.Y) > 4 then
+            tbDragMoved = true
+        end
+        toggleFloatBtn.Position = UDim2.new(
+            tbStartPos.X.Scale, tbStartPos.X.Offset + delta.X,
+            tbStartPos.Y.Scale, tbStartPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and tbDragging then
+        tbDragging = false
+        if not tbDragMoved then
+            guiVisible = not guiVisible
+            mainFrame.Visible = guiVisible
+            toggleFloatBtn.BackgroundColor3 = guiVisible
+                and Color3.fromRGB(30, 30, 45)
+                or Color3.fromRGB(80, 60, 160)
+        end
+    end
+end)
 
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 36)
@@ -251,9 +324,9 @@ tab1Content.Parent = mainFrame
 local t1ToggleBtn = Instance.new("TextButton")
 t1ToggleBtn.Size = UDim2.new(1, -16, 0, 26)
 t1ToggleBtn.Position = UDim2.new(0, 8, 0, 4)
-t1ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+t1ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 50, 50)
 t1ToggleBtn.BorderSizePixel = 0
-t1ToggleBtn.Text = "Auto Sound on Kill: ON"
+t1ToggleBtn.Text = "Auto Sound on Kill: OFF"
 t1ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 t1ToggleBtn.TextSize = 12
 t1ToggleBtn.Font = Enum.Font.GothamBold
@@ -301,9 +374,9 @@ tab2Content.Parent = mainFrame
 local t2ToggleBtn = Instance.new("TextButton")
 t2ToggleBtn.Size = UDim2.new(1, -16, 0, 26)
 t2ToggleBtn.Position = UDim2.new(0, 8, 0, 4)
-t2ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+t2ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 50, 50)
 t2ToggleBtn.BorderSizePixel = 0
-t2ToggleBtn.Text = "Auto Emote on Kill: ON"
+t2ToggleBtn.Text = "Auto Emote on Kill: OFF"
 t2ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 t2ToggleBtn.TextSize = 12
 t2ToggleBtn.Font = Enum.Font.GothamBold
@@ -369,13 +442,9 @@ local emoteRowObjects = {}
 
 local function updateEmoteSelection()
     for _, row in ipairs(emoteRowObjects) do
-        if row.slotIndex == emoteSelectedSlot then
-            row.nameBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
-            row.nameBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            row.nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-            row.nameBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
+        local sel = row.slotIndex == emoteSelectedSlot
+        row.nameBtn.BackgroundColor3 = sel and Color3.fromRGB(80, 60, 160) or Color3.fromRGB(30, 30, 45)
+        row.nameBtn.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 180, 200)
     end
 end
 
@@ -385,34 +454,30 @@ local function refreshEmoteSlots()
     end
     emoteRowObjects = {}
 
-    local success, Page1 = pcall(function()
+    local ok, Page1 = pcall(function()
         return LocalPlayer.PlayerGui:WaitForChild("Emotes", 3)
-            :WaitForChild("Emote", 3)
-            :WaitForChild("Page1", 3)
+            :WaitForChild("Emote", 3):WaitForChild("Page1", 3)
     end)
 
-    local freshSlots = {}
-    if success then
+    local fresh = {}
+    if ok then
         for i = 1, 8 do
             local slot = Page1:FindFirstChild(tostring(i))
             if slot then
-                local nameLabel = slot:FindFirstChild("EmoteName")
-                local emoteName = nameLabel and nameLabel.ContentText or "None"
-                if emoteName and emoteName ~= "" and emoteName ~= "None" then
-                    -- preserve existing keybind if slot index matches
+                local lbl = slot:FindFirstChild("EmoteName")
+                local name = lbl and lbl.ContentText or "None"
+                if name ~= "" and name ~= "None" then
                     local existingKey = nil
                     for _, old in ipairs(emoteSlots) do
-                        if old.index == i then
-                            existingKey = old.key
-                            break
-                        end
+                        if old.index == i then existingKey = old.key break end
                     end
-                    table.insert(freshSlots, {index = i, name = emoteName, key = existingKey})
+                    table.insert(fresh, {index = i, name = name, key = existingKey})
                 end
             end
         end
     end
-    emoteSlots = freshSlots
+    emoteSlots = fresh
+    rebuildEmoteKeyMap()
 
     emoteScroll.CanvasSize = UDim2.new(0, 0, 0, #emoteSlots * 46 + 8)
 
@@ -422,8 +487,9 @@ local function refreshEmoteSlots()
         frame.BackgroundTransparency = 1
         frame.Parent = emoteScroll
 
+        -- name button (narrower to fit key + clear)
         local nameBtn = Instance.new("TextButton")
-        nameBtn.Size = UDim2.new(1, -74, 1, 0)
+        nameBtn.Size = UDim2.new(1, -118, 1, 0)
         nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
         nameBtn.BorderSizePixel = 0
         nameBtn.Text = "Slot " .. slotData.index .. ": " .. slotData.name
@@ -434,17 +500,17 @@ local function refreshEmoteSlots()
         nameBtn.TextTruncate = Enum.TextTruncate.AtEnd
         nameBtn.Parent = frame
 
-        local nameBtnPad = Instance.new("UIPadding")
-        nameBtnPad.PaddingLeft = UDim.new(0, 8)
-        nameBtnPad.Parent = nameBtn
+        local namePad = Instance.new("UIPadding")
+        namePad.PaddingLeft = UDim.new(0, 8)
+        namePad.Parent = nameBtn
 
-        local nameBtnCorner = Instance.new("UICorner")
-        nameBtnCorner.CornerRadius = UDim.new(0, 6)
-        nameBtnCorner.Parent = nameBtn
+        local nameCorner = Instance.new("UICorner")
+        nameCorner.CornerRadius = UDim.new(0, 6)
+        nameCorner.Parent = nameBtn
 
         local keyBtn = Instance.new("TextButton")
         keyBtn.Size = UDim2.new(0, 68, 1, 0)
-        keyBtn.Position = UDim2.new(1, -68, 0, 0)
+        keyBtn.Position = UDim2.new(1, -112, 0, 0)
         keyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
         keyBtn.BorderSizePixel = 0
         keyBtn.Text = slotData.key and keyName(slotData.key) or "None"
@@ -453,14 +519,29 @@ local function refreshEmoteSlots()
         keyBtn.Font = Enum.Font.Gotham
         keyBtn.Parent = frame
 
-        local keyBtnCorner = Instance.new("UICorner")
-        keyBtnCorner.CornerRadius = UDim.new(0, 6)
-        keyBtnCorner.Parent = keyBtn
+        local keyCorner = Instance.new("UICorner")
+        keyCorner.CornerRadius = UDim.new(0, 6)
+        keyCorner.Parent = keyBtn
 
         local keyStroke = Instance.new("UIStroke")
-        keyStroke.Color = slotData.key and Color3.fromRGB(80, 80, 120) or Color3.fromRGB(80, 80, 120)
+        keyStroke.Color = Color3.fromRGB(80, 80, 120)
         keyStroke.Thickness = 1
         keyStroke.Parent = keyBtn
+
+        local clearBtn = Instance.new("TextButton")
+        clearBtn.Size = UDim2.new(0, 36, 1, 0)
+        clearBtn.Position = UDim2.new(1, -38, 0, 0)
+        clearBtn.BackgroundColor3 = Color3.fromRGB(100, 30, 30)
+        clearBtn.BorderSizePixel = 0
+        clearBtn.Text = "✕"
+        clearBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+        clearBtn.TextSize = 13
+        clearBtn.Font = Enum.Font.GothamBold
+        clearBtn.Parent = frame
+
+        local clearCorner = Instance.new("UICorner")
+        clearCorner.CornerRadius = UDim.new(0, 6)
+        clearCorner.Parent = clearBtn
 
         local si = slotData.index
 
@@ -468,17 +549,11 @@ local function refreshEmoteSlots()
             emoteSelectedSlot = si
             updateEmoteSelection()
         end)
-
         nameBtn.MouseEnter:Connect(function()
-            if si ~= emoteSelectedSlot then
-                nameBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75)
-            end
+            if si ~= emoteSelectedSlot then nameBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75) end
         end)
-
         nameBtn.MouseLeave:Connect(function()
-            if si ~= emoteSelectedSlot then
-                nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-            end
+            if si ~= emoteSelectedSlot then nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45) end
         end)
 
         keyBtn.MouseButton1Click:Connect(function()
@@ -488,23 +563,29 @@ local function refreshEmoteSlots()
             keyStroke.Color = Color3.fromRGB(255, 220, 80)
         end)
 
+        clearBtn.MouseButton1Click:Connect(function()
+            for _, sd in ipairs(emoteSlots) do
+                if sd.index == si then sd.key = nil break end
+            end
+            rebuildEmoteKeyMap()
+            keyBtn.Text = "None"
+            keyBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+            keyStroke.Color = Color3.fromRGB(80, 80, 120)
+            if emoteListeningSlot == si then emoteListeningSlot = nil end
+        end)
+
         table.insert(emoteRowObjects, {
-            frame = frame,
-            nameBtn = nameBtn,
-            keyBtn = keyBtn,
-            keyStroke = keyStroke,
-            slotIndex = si,
+            frame = frame, nameBtn = nameBtn,
+            keyBtn = keyBtn, keyStroke = keyStroke, slotIndex = si,
         })
     end
 
     updateEmoteSelection()
 end
 
-refreshBtn.MouseButton1Click:Connect(function()
-    refreshEmoteSlots()
-end)
+refreshBtn.MouseButton1Click:Connect(refreshEmoteSlots)
 
--- Shared slider
+-- Slider
 
 local sliderSection = Instance.new("Frame")
 sliderSection.Size = UDim2.new(1, 0, 0, 66)
@@ -603,11 +684,7 @@ local function updateSlider(input)
     local relX = math.clamp(input.Position.X - trackPos, 0, trackSize)
     local fraction = relX / trackSize
     local val = math.floor(fraction * maxDelay * 10 + 0.5) / 10
-    if activeTab == 1 then
-        triggerDelay = val
-    else
-        emoteDelay = val
-    end
+    if activeTab == 1 then triggerDelay = val else emoteDelay = val end
     sliderFill.Size = UDim2.new(fraction, 0, 1, 0)
     sliderKnob.Position = UDim2.new(fraction, -7, 0.5, -7)
     delayLabel.Text = string.format("Delay: %.1fs", val)
@@ -622,30 +699,19 @@ end)
 
 local function switchTab(tab)
     activeTab = tab
-    if tab == 1 then
-        tab1Content.Visible = true
-        tab2Content.Visible = false
-        tab1Btn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
-        tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        tab2Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-        tab2Btn.TextColor3 = Color3.fromRGB(160, 160, 180)
-        local fraction = triggerDelay / maxDelay
-        sliderFill.Size = UDim2.new(fraction, 0, 1, 0)
-        sliderKnob.Position = UDim2.new(fraction, -7, 0.5, -7)
-        delayLabel.Text = string.format("Delay: %.1fs", triggerDelay)
-    else
-        tab1Content.Visible = false
-        tab2Content.Visible = true
-        tab1Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-        tab1Btn.TextColor3 = Color3.fromRGB(160, 160, 180)
-        tab2Btn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
-        tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        local fraction = emoteDelay / maxDelay
-        sliderFill.Size = UDim2.new(fraction, 0, 1, 0)
-        sliderKnob.Position = UDim2.new(fraction, -7, 0.5, -7)
-        delayLabel.Text = string.format("Delay: %.1fs", emoteDelay)
-        refreshEmoteSlots()
-    end
+    local onTab1 = tab == 1
+    tab1Content.Visible = onTab1
+    tab2Content.Visible = not onTab1
+    tab1Btn.BackgroundColor3 = onTab1 and Color3.fromRGB(80, 60, 160) or Color3.fromRGB(30, 30, 45)
+    tab1Btn.TextColor3 = onTab1 and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 160, 180)
+    tab2Btn.BackgroundColor3 = onTab1 and Color3.fromRGB(30, 30, 45) or Color3.fromRGB(80, 60, 160)
+    tab2Btn.TextColor3 = onTab1 and Color3.fromRGB(160, 160, 180) or Color3.fromRGB(255, 255, 255)
+    local val = onTab1 and triggerDelay or emoteDelay
+    local fraction = val / maxDelay
+    sliderFill.Size = UDim2.new(fraction, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(fraction, -7, 0.5, -7)
+    delayLabel.Text = string.format("Delay: %.1fs", val)
+    if not onTab1 then refreshEmoteSlots() end
 end
 
 tab1Btn.MouseButton1Click:Connect(function() switchTab(1) end)
@@ -657,13 +723,9 @@ local soundButtons = {}
 
 local function updateSelection()
     for i, row in ipairs(soundButtons) do
-        if i == selectedIndex then
-            row.nameBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 160)
-            row.nameBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            row.nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-            row.nameBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
+        local sel = i == selectedIndex
+        row.nameBtn.BackgroundColor3 = sel and Color3.fromRGB(80, 60, 160) or Color3.fromRGB(30, 30, 45)
+        row.nameBtn.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 180, 200)
     end
 end
 
@@ -687,8 +749,9 @@ for i, sound in ipairs(sounds) do
     row.BackgroundTransparency = 1
     row.Parent = scrollFrame
 
+    -- narrower name button to fit key + clear
     local nameBtn = Instance.new("TextButton")
-    nameBtn.Size = UDim2.new(1, -74, 1, 0)
+    nameBtn.Size = UDim2.new(1, -118, 1, 0)
     nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
     nameBtn.BorderSizePixel = 0
     nameBtn.Text = sound.name
@@ -699,17 +762,17 @@ for i, sound in ipairs(sounds) do
     nameBtn.TextTruncate = Enum.TextTruncate.AtEnd
     nameBtn.Parent = row
 
-    local nameBtnPad = Instance.new("UIPadding")
-    nameBtnPad.PaddingLeft = UDim.new(0, 8)
-    nameBtnPad.Parent = nameBtn
+    local namePad = Instance.new("UIPadding")
+    namePad.PaddingLeft = UDim.new(0, 8)
+    namePad.Parent = nameBtn
 
-    local nameBtnCorner = Instance.new("UICorner")
-    nameBtnCorner.CornerRadius = UDim.new(0, 6)
-    nameBtnCorner.Parent = nameBtn
+    local nameCorner = Instance.new("UICorner")
+    nameCorner.CornerRadius = UDim.new(0, 6)
+    nameCorner.Parent = nameBtn
 
     local keyBtn = Instance.new("TextButton")
     keyBtn.Size = UDim2.new(0, 68, 1, 0)
-    keyBtn.Position = UDim2.new(1, -68, 0, 0)
+    keyBtn.Position = UDim2.new(1, -112, 0, 0)
     keyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
     keyBtn.BorderSizePixel = 0
     keyBtn.Text = "None"
@@ -718,34 +781,52 @@ for i, sound in ipairs(sounds) do
     keyBtn.Font = Enum.Font.Gotham
     keyBtn.Parent = row
 
-    local keyBtnCorner = Instance.new("UICorner")
-    keyBtnCorner.CornerRadius = UDim.new(0, 6)
-    keyBtnCorner.Parent = keyBtn
+    local keyCorner = Instance.new("UICorner")
+    keyCorner.CornerRadius = UDim.new(0, 6)
+    keyCorner.Parent = keyBtn
 
     local keyStroke = Instance.new("UIStroke")
     keyStroke.Color = Color3.fromRGB(80, 80, 120)
     keyStroke.Thickness = 1
     keyStroke.Parent = keyBtn
 
+    local clearBtn = Instance.new("TextButton")
+    clearBtn.Size = UDim2.new(0, 36, 1, 0)
+    clearBtn.Position = UDim2.new(1, -38, 0, 0)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(100, 30, 30)
+    clearBtn.BorderSizePixel = 0
+    clearBtn.Text = "❌"
+    clearBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+    clearBtn.TextSize = 13
+    clearBtn.Font = Enum.Font.GothamBold
+    clearBtn.Parent = row
+
+    local clearCorner = Instance.new("UICorner")
+    clearCorner.CornerRadius = UDim.new(0, 6)
+    clearCorner.Parent = clearBtn
+
     nameBtn.MouseButton1Click:Connect(function()
         selectedIndex = i
         updateSelection()
     end)
-
     nameBtn.MouseEnter:Connect(function()
-        if i ~= selectedIndex then
-            nameBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75)
-        end
+        if i ~= selectedIndex then nameBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75) end
     end)
-
     nameBtn.MouseLeave:Connect(function()
-        if i ~= selectedIndex then
-            nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-        end
+        if i ~= selectedIndex then nameBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45) end
     end)
 
     keyBtn.MouseButton1Click:Connect(function()
         setListening(i)
+    end)
+
+    clearBtn.MouseButton1Click:Connect(function()
+        sounds[i].key = nil
+        rebuildSoundKeyMap()
+        keyBtn.Text = "None"
+        keyBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        keyStroke.Color = Color3.fromRGB(80, 80, 120)
+        if listeningIndex == i then listeningIndex = nil end
     end)
 
     soundButtons[i] = {nameBtn = nameBtn, keyBtn = keyBtn, keyStroke = keyStroke}
@@ -753,38 +834,39 @@ end
 
 updateSelection()
 
--- Input
+-- Main frame drag
+
+local mainDragging = false
+local mainDragStart = nil
+local mainStartPos = nil
 
 titleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
+        mainDragging = true
+        mainDragStart = input.Position
+        mainStartPos = mainFrame.Position
     end
 end)
 
 tabBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
+        mainDragging = true
+        mainDragStart = input.Position
+        mainStartPos = mainFrame.Position
     end
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    -- emote slot keybind recording
     if emoteListeningSlot ~= nil then
         if input.UserInputType == Enum.UserInputType.Keyboard then
-            local targetSlot = emoteListeningSlot
+            local target = emoteListeningSlot
             emoteListeningSlot = nil
-            for _, slotData in ipairs(emoteSlots) do
-                if slotData.index == targetSlot then
-                    slotData.key = input.KeyCode
-                    break
-                end
+            for _, sd in ipairs(emoteSlots) do
+                if sd.index == target then sd.key = input.KeyCode break end
             end
+            rebuildEmoteKeyMap()
             for _, row in ipairs(emoteRowObjects) do
-                if row.slotIndex == targetSlot then
+                if row.slotIndex == target then
                     row.keyBtn.Text = keyName(input.KeyCode)
                     row.keyBtn.TextColor3 = Color3.fromRGB(160, 130, 255)
                     row.keyStroke.Color = Color3.fromRGB(80, 80, 120)
@@ -795,65 +877,52 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
-    -- sound keybind recording
     if listeningIndex then
         if input.UserInputType == Enum.UserInputType.Keyboard then
             local idx = listeningIndex
+            listeningIndex = nil
             sounds[idx].key = input.KeyCode
+            rebuildSoundKeyMap()
             local row = soundButtons[idx]
             row.keyBtn.Text = keyName(input.KeyCode)
             row.keyBtn.TextColor3 = Color3.fromRGB(160, 130, 255)
             row.keyStroke.Color = Color3.fromRGB(80, 80, 120)
-            listeningIndex = nil
         end
         return
     end
 
     if input.UserInputType == Enum.UserInputType.Keyboard and not gameProcessed then
-        -- check emote keybinds
-        for _, slotData in ipairs(emoteSlots) do
-            if slotData.key and input.KeyCode == slotData.key then
-                fireEmoteSlot(slotData.index, true)
-                break
-            end
-        end
-        -- check sound keybinds
-        for i, sound in ipairs(sounds) do
-            if sound.key and input.KeyCode == sound.key then
-                fireSound(i, true)
-                break
-            end
-        end
+        local si = soundKeyMap[input.KeyCode]
+        if si then fireSound(si, true) end
+        local ei = emoteKeyMap[input.KeyCode]
+        if ei then fireEmote(ei, true) end
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
-        if dragging then
-            local delta = input.Position - dragStart
+        if mainDragging then
+            local delta = input.Position - mainDragStart
             mainFrame.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
+                mainStartPos.X.Scale, mainStartPos.X.Offset + delta.X,
+                mainStartPos.Y.Scale, mainStartPos.Y.Offset + delta.Y
             )
         end
-        if slidingActive then
-            updateSlider(input)
-        end
+        if slidingActive then updateSlider(input) end
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
+        mainDragging = false
         slidingActive = false
     end
 end)
 
--- Kill detection — lastKills starts as nil so first read just initializes it
-
 RunService.Heartbeat:Connect(function()
+    local now = tick()
+    if now - lastHeartbeatCheck < HEARTBEAT_INTERVAL then return end
+    lastHeartbeatCheck = now
     local currentKills = getKills()
     if lastKills == nil then
         lastKills = currentKills
@@ -861,11 +930,7 @@ RunService.Heartbeat:Connect(function()
     end
     if currentKills > lastKills then
         lastKills = currentKills
-        if autoEnabled then
-            fireSound(selectedIndex, false)
-        end
-        if emoteAutoEnabled then
-            fireEmoteSlot(emoteSelectedSlot, false)
-        end
+        if autoEnabled then fireSound(selectedIndex, false) end
+        if emoteAutoEnabled then fireEmote(emoteSelectedSlot, false) end
     end
 end)
